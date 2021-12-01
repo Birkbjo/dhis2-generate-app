@@ -5,14 +5,13 @@ const generateManifest = require("./manifestTemplate");
 const FormData = require("form-data");
 const { exit } = require("process");
 
-
 const BASE_URLS = {
-    staging: 'https://staging.apps.dhis2.org',
-    prod: 'https://apps.dhis2.org',
-}
+    staging: "https://staging.apps.dhis2.org",
+    prod: "https://apps.dhis2.org",
+};
 
 function getBaseUrl(baseUrl) {
-    return BASE_URLS[baseUrl] || baseUrl
+    return BASE_URLS[baseUrl] || baseUrl;
 }
 
 function zip(name, data) {
@@ -39,23 +38,24 @@ async function getApp(id, baseUrl) {
     try {
         const data = await Got.get(url).json();
 
-        return data
-   } catch(e) {
-       console.error('Failed to get app:', e.message)
-       exit(-1)
-   }
-
+        return data;
+    } catch (e) {
+        console.error("Failed to get app:", e.message);
+        exit(-1);
+    }
 }
 
 async function postVersion(
     app,
     { zip, nextVersion, version },
-    { baseUrl, token }
+    { baseUrl, token, minDhisVersion, maxDhisVersion }
 ) {
+    console.log("max dhis version is", maxDhisVersion, typeof maxDhisVersion);
     const newVersion = {
         version: nextVersion,
-        minDhisVersion: version.minDhisVersion || "",
-        maxDhisVersion: "2.36",
+        minDhisVersion: minDhisVersion || version.minDhisVersion,
+        maxDhisVersion:
+            maxDhisVersion == null ? version.maxDhisVersion : maxDhisVersion,
         demoUrl: version.demoUrl || "",
         channel: "stable",
     };
@@ -104,23 +104,38 @@ async function postVersion(
 function parseArgs(args) {
     const appId = args[0];
 
-    if(!appId) {
-        console.error('Missing required app-id')
-        exit(-1)
+    if (!appId) {
+        console.error("Missing required app-id");
+        exit(-1);
     }
-    const argValue = (key, defaultValue) => {
-        const keyInd = args.findIndex((a, index) => a === `${key}`);
 
+    const argValue = (keys, defaultValue) => {
+        keys = Array.isArray(keys) ? keys : [keys];
+        const keyInd = args.findIndex((a) => keys.includes(a));
         return keyInd > -1 ? args[keyInd + 1] : defaultValue;
     };
 
     const baseUrl = argValue("-b", "http://localhost:3000");
     const version = argValue("-v", null);
+    const minDhisVersion = argValue(["--minV", "--minDhisVersion"]);
+    const maxDhisVersion = argValue(["--maxV", "--maxDhisVersion"]);
+
+    const incrementIndex = ["major", "minor", "patch"];
+    let versionIncrementIndex = incrementIndex.findIndex((vId) =>
+        args.includes(`--${vId}`)
+    );
+    if (versionIncrementIndex < 0) {
+        versionIncrementIndex = 2; //patch is default
+    }
+
     return {
         appId,
         baseUrl,
         version,
         token: argValue("-t", null),
+        minDhisVersion,
+        maxDhisVersion,
+        versionIncrementIndex,
     };
 }
 
@@ -128,8 +143,6 @@ const getVersionAsArray = (vStr) =>
     vStr.split(".").map((v) => parseInt(v.replace(/[^\d]/, "")));
 
 function findLatestVersion(app) {
-    let max = [0, 0, 0];
-
     const compareDesc = (a, b) => {
         const len = Math.min(a.length, b.length);
         for (let i = 0; i < len; i++) {
@@ -147,30 +160,45 @@ function findLatestVersion(app) {
         .sort(([a], [b]) => compareDesc(a, b))[0];
 }
 
-function calcNextVersion(version) {
-    let nextVersion = [...version];
-
-    if (version.length != 3) {
-        nextVersion[2] = 1;
-    } else {
-        nextVersion[2] = version[version.length - 1] + 1;
+function calcNextVersion(version, incInd = 2) {
+    let normalisedVersion = [...version];
+    if (normalisedVersion.length != 3) {
+        for (let i = 0; i < 3; i++) {
+            if (version[i] == null) {
+                normalisedVersion[i] = 0;
+            }
+        }
     }
+
+    let nextVersion = normalisedVersion.map((v, ind) => {
+        if (ind < incInd) {
+            return v;
+        }
+        if (ind > incInd) {
+            return 0;
+        }
+        return v + 1;
+    });
+
     return nextVersion.join(".");
 }
+
 async function main(args) {
     const argv = parseArgs(args);
 
     const app = await getApp(argv.appId, argv.baseUrl);
     const [latestVersion, versionObj] = findLatestVersion(app);
 
-    const nextVersion = calcNextVersion(latestVersion);
+    const nextVersion = calcNextVersion(
+        latestVersion,
+        argv.versionIncrementIndex
+    );
 
     console.log("Latest version ", latestVersion);
     console.log("Next Version", nextVersion);
 
     const manifest = generateManifest(app.id, app.name, nextVersion);
 
-    console.log("Generated manifest", manifest);
     const zipped = await zip(
         app.name.substring(0, 10).replace(/ /g, "_"),
         manifest
@@ -188,3 +216,4 @@ async function main(args) {
 }
 
 main(process.argv.slice(2));
+//console.log(calcNextVersion([2,1]))

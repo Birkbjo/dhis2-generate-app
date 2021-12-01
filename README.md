@@ -26,3 +26,13 @@ Base-URL to App Hub service.
 Can be either an absolute url, or one of shortcuts: `(staging, prod)`. In case of a shortcut it will use the DHIS2 hosted [staging server](https://staging.apps.dhis2.org) or [prod server](https://apps.dhis2.org).
 
 Default: `https://localhost:3000`
+
+### `--minV`, `--minDhisVersion`
+
+If present, this is used as minDhisVersion the app version is compatible with. 
+Defaults to latest versions minDhisVersion.
+
+### `--maxV`, `--maxDhisVersion`
+
+If present, this is used as maxDhisVersion the app version is compatible with. 
+Defaults to latest versions maxDhisVersion.
